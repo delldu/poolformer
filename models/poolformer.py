@@ -24,6 +24,7 @@ from timm.models.layers import DropPath, trunc_normal_
 from timm.models.registry import register_model
 from timm.models.layers.helpers import to_2tuple
 
+import pdb
 
 try:
     from mmseg.models.builder import BACKBONES as seg_BACKBONES
@@ -77,9 +78,25 @@ class PatchEmbed(nn.Module):
                               stride=stride, padding=padding)
         self.norm = norm_layer(embed_dim) if norm_layer else nn.Identity()
 
+        # self = PatchEmbed(
+        #   (proj): Conv2d(3, 64, kernel_size=(7, 7), stride=(4, 4), padding=(2, 2))
+        #   (norm): Identity()
+        # )
+        # patch_size = (7, 7)
+        # stride = (4, 4)
+        # padding = (2, 2)
+        # in_chans = 3
+        # embed_dim = 64
+        # norm_layer = None
+
+        # self.proj -- Conv2d(3, 64, kernel_size=(7, 7), stride=(4, 4), padding=(2, 2))
+        # == self.norm -- Identity()
+
     def forward(self, x):
+        # x.size() -- torch.Size([128, 3, 224, 224])
         x = self.proj(x)
         x = self.norm(x)
+        # torch.Size([128, 64, 56, 56])
         return x
 
 
@@ -93,6 +110,7 @@ class LayerNormChannel(nn.Module):
         self.weight = nn.Parameter(torch.ones(num_channels))
         self.bias = nn.Parameter(torch.zeros(num_channels))
         self.eps = eps
+        pdb.set_trace()
 
     def forward(self, x):
         u = x.mean(1, keepdim=True)
@@ -110,6 +128,9 @@ class GroupNorm(nn.GroupNorm):
     """
     def __init__(self, num_channels, **kwargs):
         super().__init__(1, num_channels, **kwargs)
+        # self = GroupNorm(1, 64, eps=1e-05, affine=True)
+        # num_channels = 64
+        # kwargs = {}
 
 
 class Pooling(nn.Module):
@@ -121,8 +142,15 @@ class Pooling(nn.Module):
         super().__init__()
         self.pool = nn.AvgPool2d(
             pool_size, stride=1, padding=pool_size//2, count_include_pad=False)
+        # self = Pooling(
+        #   (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+        # )
+        # pool_size = 3
+
 
     def forward(self, x):
+        # x.size() -- torch.Size([128, 64, 56, 56])
+        # ==> self.pool(x) - x ----torch.Size([128, 64, 56, 56])
         return self.pool(x) - x
 
 
@@ -142,6 +170,18 @@ class Mlp(nn.Module):
         self.drop = nn.Dropout(drop)
         self.apply(self._init_weights)
 
+        # self = Mlp(
+        #   (fc1): Conv2d(64, 256, kernel_size=(1, 1), stride=(1, 1))
+        #   (act): GELU()
+        #   (fc2): Conv2d(256, 64, kernel_size=(1, 1), stride=(1, 1))
+        #   (drop): Dropout(p=0.0, inplace=False)
+        # )
+        # in_features = 64
+        # hidden_features = 256
+        # out_features = 64
+        # act_layer = <class 'torch.nn.modules.activation.GELU'>
+        # drop = 0.0
+
     def _init_weights(self, m):
         if isinstance(m, nn.Conv2d):
             trunc_normal_(m.weight, std=.02)
@@ -149,11 +189,15 @@ class Mlp(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
+        # x.size() -- torch.Size([128, 64, 56, 56])
+
         x = self.fc1(x)
         x = self.act(x)
         x = self.drop(x)
         x = self.fc2(x)
         x = self.drop(x)
+        # x.size() -- torch.Size([128, 64, 56, 56])
+
         return x
 
 
@@ -189,13 +233,47 @@ class PoolFormerBlock(nn.Module):
         self.drop_path = DropPath(drop_path) if drop_path > 0. \
             else nn.Identity()
         self.use_layer_scale = use_layer_scale
+
+        # use_layer_scale -- True
         if use_layer_scale:
             self.layer_scale_1 = nn.Parameter(
                 layer_scale_init_value * torch.ones((dim)), requires_grad=True)
             self.layer_scale_2 = nn.Parameter(
                 layer_scale_init_value * torch.ones((dim)), requires_grad=True)
 
+        # self = PoolFormerBlock(
+        #   (norm1): GroupNorm(1, 64, eps=1e-05, affine=True)
+        #   (token_mixer): Pooling(
+        #     (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+        #   )
+        #   (norm2): GroupNorm(1, 64, eps=1e-05, affine=True)
+        #   (mlp): Mlp(
+        #     (fc1): Conv2d(64, 256, kernel_size=(1, 1), stride=(1, 1))
+        #     (act): GELU()
+        #     (fc2): Conv2d(256, 64, kernel_size=(1, 1), stride=(1, 1))
+        #     (drop): Dropout(p=0.0, inplace=False)
+        #   )
+        #   (drop_path): Identity()
+        # )
+        # dim = 64
+        # pool_size = 3
+        # mlp_ratio = 4
+        # drop = 0.0
+        # drop_path = 0.0
+        # use_layer_scale = True
+        # layer_scale_init_value = 1e-05
+
     def forward(self, x):
+        # torch.Size([128, 64, 56, 56])
+        # self.use_layer_scale -- True
+        # self.drop_path -- Identity()
+
+        # self.layer_scale_1.size() -- torch.Size([64])
+        # self.layer_scale_2.size() -- torch.Size([64])
+        # self.norm1(x).size() -- torch.Size([128, 64, 56, 56])
+        # self.token_mixer(self.norm1(x)).size() -- torch.Size([128, 64, 56, 56])
+        # self.mlp(self.norm2(x)).size() -- torch.Size([128, 64, 56, 56])
+
         if self.use_layer_scale:
             x = x + self.drop_path(
                 self.layer_scale_1.unsqueeze(-1).unsqueeze(-1)
@@ -206,6 +284,7 @@ class PoolFormerBlock(nn.Module):
         else:
             x = x + self.drop_path(self.token_mixer(self.norm1(x)))
             x = x + self.drop_path(self.mlp(self.norm2(x)))
+        # x.size() -- torch.Size([128, 64, 56, 56])
         return x
 
 
@@ -230,6 +309,65 @@ def basic_blocks(dim, index, layers,
             layer_scale_init_value=layer_scale_init_value, 
             ))
     blocks = nn.Sequential(*blocks)
+
+    # Sequential(
+    #   (0): PoolFormerBlock(
+    #     (norm1): GroupNorm(1, 64, eps=1e-05, affine=True)
+    #     (token_mixer): Pooling(
+    #       (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #     )
+    #     (norm2): GroupNorm(1, 64, eps=1e-05, affine=True)
+    #     (mlp): Mlp(
+    #       (fc1): Conv2d(64, 256, kernel_size=(1, 1), stride=(1, 1))
+    #       (act): GELU()
+    #       (fc2): Conv2d(256, 64, kernel_size=(1, 1), stride=(1, 1))
+    #       (drop): Dropout(p=0.0, inplace=False)
+    #     )
+    #     (drop_path): Identity()
+    #   )
+    #   (1): PoolFormerBlock(
+    #     (norm1): GroupNorm(1, 64, eps=1e-05, affine=True)
+    #     (token_mixer): Pooling(
+    #       (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #     )
+    #     (norm2): GroupNorm(1, 64, eps=1e-05, affine=True)
+    #     (mlp): Mlp(
+    #       (fc1): Conv2d(64, 256, kernel_size=(1, 1), stride=(1, 1))
+    #       (act): GELU()
+    #       (fc2): Conv2d(256, 64, kernel_size=(1, 1), stride=(1, 1))
+    #       (drop): Dropout(p=0.0, inplace=False)
+    #     )
+    #     (drop_path): Identity()
+    #   )
+    #   (2): PoolFormerBlock(
+    #     (norm1): GroupNorm(1, 64, eps=1e-05, affine=True)
+    #     (token_mixer): Pooling(
+    #       (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #     )
+    #     (norm2): GroupNorm(1, 64, eps=1e-05, affine=True)
+    #     (mlp): Mlp(
+    #       (fc1): Conv2d(64, 256, kernel_size=(1, 1), stride=(1, 1))
+    #       (act): GELU()
+    #       (fc2): Conv2d(256, 64, kernel_size=(1, 1), stride=(1, 1))
+    #       (drop): Dropout(p=0.0, inplace=False)
+    #     )
+    #     (drop_path): Identity()
+    #   )
+    #   (3): PoolFormerBlock(
+    #     (norm1): GroupNorm(1, 64, eps=1e-05, affine=True)
+    #     (token_mixer): Pooling(
+    #       (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #     )
+    #     (norm2): GroupNorm(1, 64, eps=1e-05, affine=True)
+    #     (mlp): Mlp(
+    #       (fc1): Conv2d(64, 256, kernel_size=(1, 1), stride=(1, 1))
+    #       (act): GELU()
+    #       (fc2): Conv2d(256, 64, kernel_size=(1, 1), stride=(1, 1))
+    #       (drop): Dropout(p=0.0, inplace=False)
+    #     )
+    #     (drop_path): Identity()
+    #   )
+    # )
 
     return blocks
 
@@ -266,6 +404,33 @@ class PoolFormer(nn.Module):
                  **kwargs):
 
         super().__init__()
+        # self = PoolFormer(
+        #   (patch_embed): PatchEmbed(
+        #     (proj): Conv2d(3, 64, kernel_size=(7, 7), stride=(4, 4), padding=(2, 2))
+        #     (norm): Identity()
+        #   )
+        # )
+        # layers = [4, 4, 12, 4]
+        # embed_dims = [64, 128, 320, 512]
+        # mlp_ratios = [4, 4, 4, 4]
+        # downsamples = [True, True, True, True]
+        # pool_size = 3
+        # num_classes = 1000
+        # in_patch_size = 7
+        # in_stride = 4
+        # in_pad = 2
+        # down_patch_size = 3
+        # down_stride = 2
+        # down_pad = 1
+        # drop_rate = 0.0
+        # drop_path_rate = 0.0
+        # use_layer_scale = True
+        # layer_scale_init_value = 1e-05
+        # fork_feat = False
+        # init_cfg = None
+        # pretrained = None
+        # kwargs = {'in_chans': 3}
+
 
         if not fork_feat:
             self.num_classes = num_classes
@@ -277,6 +442,9 @@ class PoolFormer(nn.Module):
 
         # set the main block in network
         network = []
+        # layers -- [4, 4, 12, 4]
+        # embed_dims -- [64, 128, 320, 512]
+        # mlp_ratios -- [4, 4, 4, 4]
         for i in range(len(layers)):
             stage = basic_blocks(embed_dims[i], i, layers, 
                                  pool_size=pool_size, mlp_ratio=mlp_ratios[i],
@@ -300,6 +468,7 @@ class PoolFormer(nn.Module):
 
         self.network = nn.ModuleList(network)
 
+        # self.fork_feat -- False
         if self.fork_feat:
             # add a norm layer for each output
             self.out_indices = [0, 2, 4, 6]
@@ -316,18 +485,23 @@ class PoolFormer(nn.Module):
                 self.add_module(layer_name, layer)
         else:
             # Classifier head
+            # embed_dims[-1] -- 512
             self.norm = norm_layer(embed_dims[-1])
+            # self.norm -- GroupNorm(1, 512, eps=1e-05, affine=True)
             self.head = nn.Linear(
                 embed_dims[-1], num_classes) if num_classes > 0 \
                 else nn.Identity()
+            # self.head -- Linear(in_features=512, out_features=1000, bias=True)
 
         self.apply(self.cls_init_weights)
 
         self.init_cfg = copy.deepcopy(init_cfg)
         # load pre-trained model 
+        # self.fork_feat -- False
         if self.fork_feat and (
                 self.init_cfg is not None or pretrained is not None):
             self.init_weights()
+
 
     # init for classification
     def cls_init_weights(self, m):
@@ -381,10 +555,14 @@ class PoolFormer(nn.Module):
             self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
     def forward_embeddings(self, x):
+        # pdb.set_trace()
         x = self.patch_embed(x)
+        # pdb.set_trace()
         return x
 
     def forward_tokens(self, x):
+        # pdb.set_trace()
+        # self.fork_feat -- False
         outs = []
         for idx, block in enumerate(self.network):
             x = block(x)
@@ -396,19 +574,32 @@ class PoolFormer(nn.Module):
             # output the features of four stages for dense prediction
             return outs
         # output only the features of last layer for image classification
+        # pdb.set_trace()
+
         return x
 
     def forward(self, x):
+        # x.size() -- torch.Size([128, 3, 224, 224])
         # input embedding
         x = self.forward_embeddings(x)
+        # x.size() -- torch.Size([128, 64, 56, 56])
+
         # through backbone
         x = self.forward_tokens(x)
+        # x.size() -- torch.Size([128, 512, 7, 7])
+
+        # self.fork_feat -- False
         if self.fork_feat:
             # otuput features of four stages for dense prediction
             return x
         x = self.norm(x)
+        # x.size() -- torch.Size([128, 512, 7, 7])
+
         cls_out = self.head(x.mean([-2, -1]))
+
         # for image classification
+        # cls_out.size() -- torch.Size([128, 1000])
+
         return cls_out
 
 
@@ -446,7 +637,383 @@ def poolformer_s24(pretrained=False, **kwargs):
         layers, embed_dims=embed_dims, 
         mlp_ratios=mlp_ratios, downsamples=downsamples, 
         **kwargs)
+
     model.default_cfg = default_cfgs['poolformer_s']
+
+    # model.default_cfg -- {'url': '', 'num_classes': 1000, 
+    # 'input_size': (3, 224, 224), 'pool_size': None, 
+    # 'crop_pct': 0.9, 'interpolation': 'bicubic', 
+    # 'mean': (0.485, 0.456, 0.406), 
+    # 'std': (0.229, 0.224, 0.225), 'classifier': 'head'}
+
+    # (Pdb) pp model
+    # PoolFormer(
+    #   (patch_embed): PatchEmbed(
+    #     (proj): Conv2d(3, 64, kernel_size=(7, 7), stride=(4, 4), padding=(2, 2))
+    #     (norm): Identity()
+    #   )
+    #   (network): ModuleList(
+    #     (0): Sequential(
+    #       (0): PoolFormerBlock(
+    #         (norm1): GroupNorm(1, 64, eps=1e-05, affine=True)
+    #         (token_mixer): Pooling(
+    #           (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #         )
+    #         (norm2): GroupNorm(1, 64, eps=1e-05, affine=True)
+    #         (mlp): Mlp(
+    #           (fc1): Conv2d(64, 256, kernel_size=(1, 1), stride=(1, 1))
+    #           (act): GELU()
+    #           (fc2): Conv2d(256, 64, kernel_size=(1, 1), stride=(1, 1))
+    #           (drop): Dropout(p=0.0, inplace=False)
+    #         )
+    #         (drop_path): Identity()
+    #       )
+    #       (1): PoolFormerBlock(
+    #         (norm1): GroupNorm(1, 64, eps=1e-05, affine=True)
+    #         (token_mixer): Pooling(
+    #           (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #         )
+    #         (norm2): GroupNorm(1, 64, eps=1e-05, affine=True)
+    #         (mlp): Mlp(
+    #           (fc1): Conv2d(64, 256, kernel_size=(1, 1), stride=(1, 1))
+    #           (act): GELU()
+    #           (fc2): Conv2d(256, 64, kernel_size=(1, 1), stride=(1, 1))
+    #           (drop): Dropout(p=0.0, inplace=False)
+    #         )
+    #         (drop_path): Identity()
+    #       )
+    #       (2): PoolFormerBlock(
+    #         (norm1): GroupNorm(1, 64, eps=1e-05, affine=True)
+    #         (token_mixer): Pooling(
+    #           (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #         )
+    #         (norm2): GroupNorm(1, 64, eps=1e-05, affine=True)
+    #         (mlp): Mlp(
+    #           (fc1): Conv2d(64, 256, kernel_size=(1, 1), stride=(1, 1))
+    #           (act): GELU()
+    #           (fc2): Conv2d(256, 64, kernel_size=(1, 1), stride=(1, 1))
+    #           (drop): Dropout(p=0.0, inplace=False)
+    #         )
+    #         (drop_path): Identity()
+    #       )
+    #       (3): PoolFormerBlock(
+    #         (norm1): GroupNorm(1, 64, eps=1e-05, affine=True)
+    #         (token_mixer): Pooling(
+    #           (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #         )
+    #         (norm2): GroupNorm(1, 64, eps=1e-05, affine=True)
+    #         (mlp): Mlp(
+    #           (fc1): Conv2d(64, 256, kernel_size=(1, 1), stride=(1, 1))
+    #           (act): GELU()
+    #           (fc2): Conv2d(256, 64, kernel_size=(1, 1), stride=(1, 1))
+    #           (drop): Dropout(p=0.0, inplace=False)
+    #         )
+    #         (drop_path): Identity()
+    #       )
+    #     )
+    #     (1): PatchEmbed(
+    #       (proj): Conv2d(64, 128, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1))
+    #       (norm): Identity()
+    #     )
+    #     (2): Sequential(
+    #       (0): PoolFormerBlock(
+    #         (norm1): GroupNorm(1, 128, eps=1e-05, affine=True)
+    #         (token_mixer): Pooling(
+    #           (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #         )
+    #         (norm2): GroupNorm(1, 128, eps=1e-05, affine=True)
+    #         (mlp): Mlp(
+    #           (fc1): Conv2d(128, 512, kernel_size=(1, 1), stride=(1, 1))
+    #           (act): GELU()
+    #           (fc2): Conv2d(512, 128, kernel_size=(1, 1), stride=(1, 1))
+    #           (drop): Dropout(p=0.0, inplace=False)
+    #         )
+    #         (drop_path): Identity()
+    #       )
+    #       (1): PoolFormerBlock(
+    #         (norm1): GroupNorm(1, 128, eps=1e-05, affine=True)
+    #         (token_mixer): Pooling(
+    #           (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #         )
+    #         (norm2): GroupNorm(1, 128, eps=1e-05, affine=True)
+    #         (mlp): Mlp(
+    #           (fc1): Conv2d(128, 512, kernel_size=(1, 1), stride=(1, 1))
+    #           (act): GELU()
+    #           (fc2): Conv2d(512, 128, kernel_size=(1, 1), stride=(1, 1))
+    #           (drop): Dropout(p=0.0, inplace=False)
+    #         )
+    #         (drop_path): Identity()
+    #       )
+    #       (2): PoolFormerBlock(
+    #         (norm1): GroupNorm(1, 128, eps=1e-05, affine=True)
+    #         (token_mixer): Pooling(
+    #           (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #         )
+    #         (norm2): GroupNorm(1, 128, eps=1e-05, affine=True)
+    #         (mlp): Mlp(
+    #           (fc1): Conv2d(128, 512, kernel_size=(1, 1), stride=(1, 1))
+    #           (act): GELU()
+    #           (fc2): Conv2d(512, 128, kernel_size=(1, 1), stride=(1, 1))
+    #           (drop): Dropout(p=0.0, inplace=False)
+    #         )
+    #         (drop_path): Identity()
+    #       )
+    #       (3): PoolFormerBlock(
+    #         (norm1): GroupNorm(1, 128, eps=1e-05, affine=True)
+    #         (token_mixer): Pooling(
+    #           (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #         )
+    #         (norm2): GroupNorm(1, 128, eps=1e-05, affine=True)
+    #         (mlp): Mlp(
+    #           (fc1): Conv2d(128, 512, kernel_size=(1, 1), stride=(1, 1))
+    #           (act): GELU()
+    #           (fc2): Conv2d(512, 128, kernel_size=(1, 1), stride=(1, 1))
+    #           (drop): Dropout(p=0.0, inplace=False)
+    #         )
+    #         (drop_path): Identity()
+    #       )
+    #     )
+    #     (3): PatchEmbed(
+    #       (proj): Conv2d(128, 320, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1))
+    #       (norm): Identity()
+    #     )
+    #     (4): Sequential(
+    #       (0): PoolFormerBlock(
+    #         (norm1): GroupNorm(1, 320, eps=1e-05, affine=True)
+    #         (token_mixer): Pooling(
+    #           (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #         )
+    #         (norm2): GroupNorm(1, 320, eps=1e-05, affine=True)
+    #         (mlp): Mlp(
+    #           (fc1): Conv2d(320, 1280, kernel_size=(1, 1), stride=(1, 1))
+    #           (act): GELU()
+    #           (fc2): Conv2d(1280, 320, kernel_size=(1, 1), stride=(1, 1))
+    #           (drop): Dropout(p=0.0, inplace=False)
+    #         )
+    #         (drop_path): Identity()
+    #       )
+    #       (1): PoolFormerBlock(
+    #         (norm1): GroupNorm(1, 320, eps=1e-05, affine=True)
+    #         (token_mixer): Pooling(
+    #           (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #         )
+    #         (norm2): GroupNorm(1, 320, eps=1e-05, affine=True)
+    #         (mlp): Mlp(
+    #           (fc1): Conv2d(320, 1280, kernel_size=(1, 1), stride=(1, 1))
+    #           (act): GELU()
+    #           (fc2): Conv2d(1280, 320, kernel_size=(1, 1), stride=(1, 1))
+    #           (drop): Dropout(p=0.0, inplace=False)
+    #         )
+    #         (drop_path): Identity()
+    #       )
+    #       (2): PoolFormerBlock(
+    #         (norm1): GroupNorm(1, 320, eps=1e-05, affine=True)
+    #         (token_mixer): Pooling(
+    #           (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #         )
+    #         (norm2): GroupNorm(1, 320, eps=1e-05, affine=True)
+    #         (mlp): Mlp(
+    #           (fc1): Conv2d(320, 1280, kernel_size=(1, 1), stride=(1, 1))
+    #           (act): GELU()
+    #           (fc2): Conv2d(1280, 320, kernel_size=(1, 1), stride=(1, 1))
+    #           (drop): Dropout(p=0.0, inplace=False)
+    #         )
+    #         (drop_path): Identity()
+    #       )
+    #       (3): PoolFormerBlock(
+    #         (norm1): GroupNorm(1, 320, eps=1e-05, affine=True)
+    #         (token_mixer): Pooling(
+    #           (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #         )
+    #         (norm2): GroupNorm(1, 320, eps=1e-05, affine=True)
+    #         (mlp): Mlp(
+    #           (fc1): Conv2d(320, 1280, kernel_size=(1, 1), stride=(1, 1))
+    #           (act): GELU()
+    #           (fc2): Conv2d(1280, 320, kernel_size=(1, 1), stride=(1, 1))
+    #           (drop): Dropout(p=0.0, inplace=False)
+    #         )
+    #         (drop_path): Identity()
+    #       )
+    #       (4): PoolFormerBlock(
+    #         (norm1): GroupNorm(1, 320, eps=1e-05, affine=True)
+    #         (token_mixer): Pooling(
+    #           (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #         )
+    #         (norm2): GroupNorm(1, 320, eps=1e-05, affine=True)
+    #         (mlp): Mlp(
+    #           (fc1): Conv2d(320, 1280, kernel_size=(1, 1), stride=(1, 1))
+    #           (act): GELU()
+    #           (fc2): Conv2d(1280, 320, kernel_size=(1, 1), stride=(1, 1))
+    #           (drop): Dropout(p=0.0, inplace=False)
+    #         )
+    #         (drop_path): Identity()
+    #       )
+    #       (5): PoolFormerBlock(
+    #         (norm1): GroupNorm(1, 320, eps=1e-05, affine=True)
+    #         (token_mixer): Pooling(
+    #           (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #         )
+    #         (norm2): GroupNorm(1, 320, eps=1e-05, affine=True)
+    #         (mlp): Mlp(
+    #           (fc1): Conv2d(320, 1280, kernel_size=(1, 1), stride=(1, 1))
+    #           (act): GELU()
+    #           (fc2): Conv2d(1280, 320, kernel_size=(1, 1), stride=(1, 1))
+    #           (drop): Dropout(p=0.0, inplace=False)
+    #         )
+    #         (drop_path): Identity()
+    #       )
+    #       (6): PoolFormerBlock(
+    #         (norm1): GroupNorm(1, 320, eps=1e-05, affine=True)
+    #         (token_mixer): Pooling(
+    #           (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #         )
+    #         (norm2): GroupNorm(1, 320, eps=1e-05, affine=True)
+    #         (mlp): Mlp(
+    #           (fc1): Conv2d(320, 1280, kernel_size=(1, 1), stride=(1, 1))
+    #           (act): GELU()
+    #           (fc2): Conv2d(1280, 320, kernel_size=(1, 1), stride=(1, 1))
+    #           (drop): Dropout(p=0.0, inplace=False)
+    #         )
+    #         (drop_path): Identity()
+    #       )
+    #       (7): PoolFormerBlock(
+    #         (norm1): GroupNorm(1, 320, eps=1e-05, affine=True)
+    #         (token_mixer): Pooling(
+    #           (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #         )
+    #         (norm2): GroupNorm(1, 320, eps=1e-05, affine=True)
+    #         (mlp): Mlp(
+    #           (fc1): Conv2d(320, 1280, kernel_size=(1, 1), stride=(1, 1))
+    #           (act): GELU()
+    #           (fc2): Conv2d(1280, 320, kernel_size=(1, 1), stride=(1, 1))
+    #           (drop): Dropout(p=0.0, inplace=False)
+    #         )
+    #         (drop_path): Identity()
+    #       )
+    #       (8): PoolFormerBlock(
+    #         (norm1): GroupNorm(1, 320, eps=1e-05, affine=True)
+    #         (token_mixer): Pooling(
+    #           (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #         )
+    #         (norm2): GroupNorm(1, 320, eps=1e-05, affine=True)
+    #         (mlp): Mlp(
+    #           (fc1): Conv2d(320, 1280, kernel_size=(1, 1), stride=(1, 1))
+    #           (act): GELU()
+    #           (fc2): Conv2d(1280, 320, kernel_size=(1, 1), stride=(1, 1))
+    #           (drop): Dropout(p=0.0, inplace=False)
+    #         )
+    #         (drop_path): Identity()
+    #       )
+    #       (9): PoolFormerBlock(
+    #         (norm1): GroupNorm(1, 320, eps=1e-05, affine=True)
+    #         (token_mixer): Pooling(
+    #           (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #         )
+    #         (norm2): GroupNorm(1, 320, eps=1e-05, affine=True)
+    #         (mlp): Mlp(
+    #           (fc1): Conv2d(320, 1280, kernel_size=(1, 1), stride=(1, 1))
+    #           (act): GELU()
+    #           (fc2): Conv2d(1280, 320, kernel_size=(1, 1), stride=(1, 1))
+    #           (drop): Dropout(p=0.0, inplace=False)
+    #         )
+    #         (drop_path): Identity()
+    #       )
+    #       (10): PoolFormerBlock(
+    #         (norm1): GroupNorm(1, 320, eps=1e-05, affine=True)
+    #         (token_mixer): Pooling(
+    #           (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #         )
+    #         (norm2): GroupNorm(1, 320, eps=1e-05, affine=True)
+    #         (mlp): Mlp(
+    #           (fc1): Conv2d(320, 1280, kernel_size=(1, 1), stride=(1, 1))
+    #           (act): GELU()
+    #           (fc2): Conv2d(1280, 320, kernel_size=(1, 1), stride=(1, 1))
+    #           (drop): Dropout(p=0.0, inplace=False)
+    #         )
+    #         (drop_path): Identity()
+    #       )
+    #       (11): PoolFormerBlock(
+    #         (norm1): GroupNorm(1, 320, eps=1e-05, affine=True)
+    #         (token_mixer): Pooling(
+    #           (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #         )
+    #         (norm2): GroupNorm(1, 320, eps=1e-05, affine=True)
+    #         (mlp): Mlp(
+    #           (fc1): Conv2d(320, 1280, kernel_size=(1, 1), stride=(1, 1))
+    #           (act): GELU()
+    #           (fc2): Conv2d(1280, 320, kernel_size=(1, 1), stride=(1, 1))
+    #           (drop): Dropout(p=0.0, inplace=False)
+    #         )
+    #         (drop_path): Identity()
+    #       )
+    #     )
+    #     (5): PatchEmbed(
+    #       (proj): Conv2d(320, 512, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1))
+    #       (norm): Identity()
+    #     )
+    #     (6): Sequential(
+    #       (0): PoolFormerBlock(
+    #         (norm1): GroupNorm(1, 512, eps=1e-05, affine=True)
+    #         (token_mixer): Pooling(
+    #           (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #         )
+    #         (norm2): GroupNorm(1, 512, eps=1e-05, affine=True)
+    #         (mlp): Mlp(
+    #           (fc1): Conv2d(512, 2048, kernel_size=(1, 1), stride=(1, 1))
+    #           (act): GELU()
+    #           (fc2): Conv2d(2048, 512, kernel_size=(1, 1), stride=(1, 1))
+    #           (drop): Dropout(p=0.0, inplace=False)
+    #         )
+    #         (drop_path): Identity()
+    #       )
+    #       (1): PoolFormerBlock(
+    #         (norm1): GroupNorm(1, 512, eps=1e-05, affine=True)
+    #         (token_mixer): Pooling(
+    #           (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #         )
+    #         (norm2): GroupNorm(1, 512, eps=1e-05, affine=True)
+    #         (mlp): Mlp(
+    #           (fc1): Conv2d(512, 2048, kernel_size=(1, 1), stride=(1, 1))
+    #           (act): GELU()
+    #           (fc2): Conv2d(2048, 512, kernel_size=(1, 1), stride=(1, 1))
+    #           (drop): Dropout(p=0.0, inplace=False)
+    #         )
+    #         (drop_path): Identity()
+    #       )
+    #       (2): PoolFormerBlock(
+    #         (norm1): GroupNorm(1, 512, eps=1e-05, affine=True)
+    #         (token_mixer): Pooling(
+    #           (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #         )
+    #         (norm2): GroupNorm(1, 512, eps=1e-05, affine=True)
+    #         (mlp): Mlp(
+    #           (fc1): Conv2d(512, 2048, kernel_size=(1, 1), stride=(1, 1))
+    #           (act): GELU()
+    #           (fc2): Conv2d(2048, 512, kernel_size=(1, 1), stride=(1, 1))
+    #           (drop): Dropout(p=0.0, inplace=False)
+    #         )
+    #         (drop_path): Identity()
+    #       )
+    #       (3): PoolFormerBlock(
+    #         (norm1): GroupNorm(1, 512, eps=1e-05, affine=True)
+    #         (token_mixer): Pooling(
+    #           (pool): AvgPool2d(kernel_size=3, stride=1, padding=1)
+    #         )
+    #         (norm2): GroupNorm(1, 512, eps=1e-05, affine=True)
+    #         (mlp): Mlp(
+    #           (fc1): Conv2d(512, 2048, kernel_size=(1, 1), stride=(1, 1))
+    #           (act): GELU()
+    #           (fc2): Conv2d(2048, 512, kernel_size=(1, 1), stride=(1, 1))
+    #           (drop): Dropout(p=0.0, inplace=False)
+    #         )
+    #         (drop_path): Identity()
+    #       )
+    #     )
+    #   )
+    #   (norm): GroupNorm(1, 512, eps=1e-05, affine=True)
+    #   (head): Linear(in_features=512, out_features=1000, bias=True)
+    # )
+
     return model
 
 
@@ -509,6 +1076,8 @@ if has_mmseg and has_mmdet:
     The following models are for dense prediction based on 
     mmdetection and mmsegmentation
     """
+    pdb.set_trace()
+
     @seg_BACKBONES.register_module()
     @det_BACKBONES.register_module()
     class poolformer_s12_feat(PoolFormer):

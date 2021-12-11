@@ -24,7 +24,7 @@ from timm.data import create_dataset, create_loader, resolve_data_config, RealLa
 from timm.utils import accuracy, AverageMeter, natural_key, setup_default_logging, set_jit_legacy
 
 import models
-
+import pdb
 
 has_apex = False
 try:
@@ -178,6 +178,18 @@ def validate(args):
 
     criterion = nn.CrossEntropyLoss().cuda()
 
+    # pp args
+    # Namespace(amp=False, apex_amp=False, batch_size=128, 
+    # channels_last=False, checkpoint='checkpoint/poolformer_s24.pth.tar', 
+    # class_map='', crop_pct=None, data='imagenet', dataset='', 
+    # dataset_download=False, gp=None, img_size=None, input_size=None, interpolation='', 
+    # legacy_jit=False, log_freq=10, mean=None, model='poolformer_s24', native_amp=False, 
+    # no_prefetcher=False, num_classes=1000, num_gpu=1, pin_mem=False, 
+    # prefetcher=True, pretrained=False, real_labels='', results_file='', 
+    # split='validation', std=None, test_pool=False, tf_preprocessing=False, 
+    # torchscript=False, use_ema=False, valid_labels='', workers=4)
+
+
     dataset = create_dataset(
         root=args.data, name=args.dataset, split=args.split,
         download=args.dataset_download, load_bytes=args.tf_preprocessing, class_map=args.class_map)
@@ -222,20 +234,28 @@ def validate(args):
         model(input)
         end = time.time()
         for batch_idx, (input, target) in enumerate(loader):
+            # pp args.no_prefetcher -- False
             if args.no_prefetcher:
                 target = target.cuda()
                 input = input.cuda()
+            # pp args.channels_last -- False
             if args.channels_last:
                 input = input.contiguous(memory_format=torch.channels_last)
 
             # compute output
+
             with amp_autocast():
                 output = model(input)
+            # (Pdb) input.size() -- torch.Size([128, 3, 224, 224])
+            # (Pdb) output.size() -- torch.Size([128, 1000])
 
+            # pp valid_labels -- None
             if valid_labels is not None:
                 output = output[:, valid_labels]
             loss = criterion(output, target)
 
+            # pp real_labels -- None
+ 
             if real_labels is not None:
                 real_labels.add_result(output)
 
