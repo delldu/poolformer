@@ -558,6 +558,8 @@ class PoolFormer(nn.Module):
         # pdb.set_trace()
         x = self.patch_embed(x)
         # pdb.set_trace()
+        torch.cuda.empty_cache()
+
         return x
 
     def forward_tokens(self, x):
@@ -570,11 +572,15 @@ class PoolFormer(nn.Module):
                 norm_layer = getattr(self, f'norm{idx}')
                 x_out = norm_layer(x)
                 outs.append(x_out)
+            torch.cuda.empty_cache()
+
         if self.fork_feat:
             # output the features of four stages for dense prediction
             return outs
         # output only the features of last layer for image classification
         # pdb.set_trace()
+
+        torch.cuda.empty_cache()
 
         return x
 
@@ -583,10 +589,12 @@ class PoolFormer(nn.Module):
         # input embedding
         x = self.forward_embeddings(x)
         # x.size() -- torch.Size([128, 64, 56, 56])
+        torch.cuda.empty_cache()
 
         # through backbone
         x = self.forward_tokens(x)
         # x.size() -- torch.Size([128, 512, 7, 7])
+        torch.cuda.empty_cache()
 
         # self.fork_feat -- False
         if self.fork_feat:
@@ -594,6 +602,8 @@ class PoolFormer(nn.Module):
             return x
         x = self.norm(x)
         # x.size() -- torch.Size([128, 512, 7, 7])
+
+        torch.cuda.empty_cache()
 
         cls_out = self.head(x.mean([-2, -1]))
 
