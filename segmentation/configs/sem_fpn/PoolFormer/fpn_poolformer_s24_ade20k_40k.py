@@ -5,22 +5,34 @@ _base_ = [
 ]
 # model settings
 model = dict(
-    type='EncoderDecoder',
+    # type='EncoderDecoder',
     # pretrained='https://github.com/sail-sg/poolformer/releases/download/v1.0/poolformer_s24.pth.tar', # for old version of mmsegmentation 
+    # backbone=dict(
+    #     type='poolformer_s24_feat',
+    #     style='pytorch',
+    #     init_cfg=dict(
+    #         type='Pretrained', 
+    #         checkpoint=\
+    #             'https://github.com/sail-sg/poolformer/releases/download/v1.0/poolformer_s24.pth.tar', 
+    #         ),
+    #     ),
+
+    type='EncoderDecoder',
+    pretrained='../checkpoint/poolformer_s24.pth.tar', # for old version of mmsegmentation 
     backbone=dict(
         type='poolformer_s24_feat',
         style='pytorch',
         init_cfg=dict(
             type='Pretrained', 
-            checkpoint=\
-                'https://github.com/sail-sg/poolformer/releases/download/v1.0/poolformer_s24.pth.tar', 
-            ),
+            checkpoint='../checkpoint/poolformer_s24.pth.tar'),
         ),
+
     neck=dict(in_channels=[64, 128, 320, 512]),
+
     decode_head=dict(num_classes=150))
 
 
-gpu_multiples = 2  # we use 8 gpu instead of 4 in mmsegmentation, so lr*2 and max_iters/2
+gpu_multiples = 1  # we use 8 gpu instead of 4 in mmsegmentation, so lr*2 and max_iters/2
 # optimizer
 optimizer = dict(type='AdamW', lr=0.0001*gpu_multiples, weight_decay=0.0001)
 optimizer_config = dict()

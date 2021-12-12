@@ -7,15 +7,25 @@ _base_ = [
 model = dict(
     type='EncoderDecoder',
     # pretrained='https://github.com/sail-sg/poolformer/releases/download/v1.0/poolformer_s12.pth.tar', # for old version of mmsegmentation 
+    # backbone=dict(
+    #     type='poolformer_s12_feat',
+    #     style='pytorch',
+    #     init_cfg=dict(
+    #         type='Pretrained', 
+    #         checkpoint=\
+    #             'https://github.com/sail-sg/poolformer/releases/download/v1.0/poolformer_s12.pth.tar', 
+    #         ),
+    #     ),
+
     backbone=dict(
         type='poolformer_s12_feat',
         style='pytorch',
         init_cfg=dict(
             type='Pretrained', 
-            checkpoint=\
-                'https://github.com/sail-sg/poolformer/releases/download/v1.0/poolformer_s12.pth.tar', 
+            checkpoint='../checkpoint/poolformer_s12.pth.tar', 
             ),
         ),
+
     neck=dict(in_channels=[64, 128, 320, 512]),
     decode_head=dict(num_classes=150))
 

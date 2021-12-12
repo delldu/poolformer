@@ -11,11 +11,47 @@ from mmcv.utils import DictAction
 from mmseg.apis import multi_gpu_test, single_gpu_test
 from mmseg.datasets import build_dataloader, build_dataset
 from mmseg.models import build_segmentor
+import pdb
 
 import sys
 sys.path.append('../')
 import models
 from align_resize import AlignResize
+from mmseg.models.builder import BACKBONES as seg_BACKBONES
+from models.poolformer import PoolFormer
+
+@seg_BACKBONES.register_module()
+class poolformer_s12_feat(PoolFormer):
+    """
+    PoolFormer-S12 model, Params: 12M
+    """
+    def __init__(self, **kwargs):
+        layers = [2, 2, 6, 2]
+        embed_dims = [64, 128, 320, 512]
+        mlp_ratios = [4, 4, 4, 4]
+        downsamples = [True, True, True, True]
+        super().__init__(
+            layers, embed_dims=embed_dims, 
+            mlp_ratios=mlp_ratios, downsamples=downsamples, 
+            fork_feat=True,
+            **kwargs)
+
+
+@seg_BACKBONES.register_module()
+class poolformer_s24_feat(PoolFormer):
+    """
+    PoolFormer-S24 model, Params: 21M
+    """
+    def __init__(self, **kwargs):
+        layers = [4, 4, 12, 4]
+        embed_dims = [64, 128, 320, 512]
+        mlp_ratios = [4, 4, 4, 4]
+        downsamples = [True, True, True, True]
+        super().__init__(
+            layers, embed_dims=embed_dims, 
+            mlp_ratios=mlp_ratios, downsamples=downsamples, 
+            fork_feat=True,
+            **kwargs)
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -88,11 +124,15 @@ def main():
         raise ValueError('The output file must be a pkl file.')
 
     cfg = mmcv.Config.fromfile(args.config)
+    # pp args.options -- None
     if args.options is not None:
         cfg.merge_from_dict(args.options)
     # set cudnn_benchmark
+    # cfg.get('cudnn_benchmark', False) -- True
     if cfg.get('cudnn_benchmark', False):
         torch.backends.cudnn.benchmark = True
+
+    # pp args.aug_test -- False
     if args.aug_test:
         # hard code index
         cfg.data.test.pipeline[1].img_ratios = [
@@ -111,21 +151,62 @@ def main():
 
     # build the dataloader
     # TODO: support multiple images per gpu (only minor changes are needed)
+    # pp cfg.data.test.pipeline[1]['img_scale'] -- (256, 256)
     dataset = build_dataset(cfg.data.test)
+
     data_loader = build_dataloader(
         dataset,
         samples_per_gpu=1,
         workers_per_gpu=cfg.data.workers_per_gpu,
         dist=distributed,
         shuffle=False)
+    # len(dataset) -- 2000
 
     # build the model and load checkpoint
     cfg.model.train_cfg = None
+    # (Pdb) pp cfg.model
+    # {'backbone': {'contract_dilation': True,
+    #               'depth': 50,
+    #               'dilations': (1, 1, 1, 1),
+    #               'init_cfg': {'checkpoint': '../checkpoint/poolformer_s24.pth.tar',
+    #                            'type': 'Pretrained'},
+    #               'norm_cfg': {'requires_grad': True, 'type': 'SyncBN'},
+    #               'norm_eval': False,
+    #               'num_stages': 4,
+    #               'out_indices': (0, 1, 2, 3),
+    #               'strides': (1, 2, 2, 2),
+    #               'style': 'pytorch',
+    #               'type': 'poolformer_s24_feat'},
+    #  'decode_head': {'align_corners': False,
+    #                  'channels': 128,
+    #                  'dropout_ratio': 0.1,
+    #                  'feature_strides': [4, 8, 16, 32],
+    #                  'in_channels': [256, 256, 256, 256],
+    #                  'in_index': [0, 1, 2, 3],
+    #                  'loss_decode': {'loss_weight': 1.0,
+    #                                  'type': 'CrossEntropyLoss',
+    #                                  'use_sigmoid': False},
+    #                  'norm_cfg': {'requires_grad': True, 'type': 'SyncBN'},
+    #                  'num_classes': 150,
+    #                  'type': 'FPNHead'},
+    #  'neck': {'in_channels': [64, 128, 320, 512],
+    #           'num_outs': 4,
+    #           'out_channels': 256,
+    #           'type': 'FPN'},
+    #  'pretrained': None,
+    #  'test_cfg': {'mode': 'whole'},
+    #  'train_cfg': None,
+    #  'type': 'EncoderDecoder'}
+
+
     model = build_segmentor(cfg.model, test_cfg=cfg.get('test_cfg'))
-    fp16_cfg = cfg.get('fp16', None)
+    # fp16_cfg = cfg.get('fp16', None) # xxxx8888
+    fp16_cfg = cfg.get('fp16', True)
+
     if fp16_cfg is not None:
         wrap_fp16_model(model)
     checkpoint = load_checkpoint(model, args.checkpoint, map_location='cpu')
+
     model.CLASSES = dataset.CLASSES # checkpoint['meta']['CLASSES']
     model.PALETTE = dataset.PALETTE # checkpoint['meta']['PALETTE']
 
@@ -133,8 +214,13 @@ def main():
     if args.eval_options is not None:
         efficient_test = args.eval_options.get('efficient_test', False)
 
+    # distributed -- False
     if not distributed:
         model = MMDataParallel(model, device_ids=[0])
+        # pp args.opacity -- 0.5
+        # pp args.show -- False
+        # pp args.show_dir -- None
+        # data_loader.batch_size -- 1
         outputs = single_gpu_test(model, data_loader, args.show, args.show_dir,
                                   efficient_test, args.opacity)
     else:

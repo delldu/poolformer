@@ -1,5 +1,13 @@
 # Applying PoolFormer to Semantic Segmentation
 
+```
+pip install mmsegmentation
+0.19.0
+
+pip install mmcv-full==1.4.0 -f https://download.openmmlab.com/mmcv/dist/cu102/torch1.5.0/index.html
+cudtoolkit10.2.89
+```
+
 Our semantic segmentation implementation is based on [MMSegmentation v0.19.0](https://github.com/open-mmlab/mmsegmentation/tree/v0.19.0) and [PVT segmentation](https://github.com/whai362/PVT/tree/v2/segmentation). Thank the authors for their wonderful works.
 
 For details see [MetaFormer is Actually What You Need for Vision](https://arxiv.org/abs/2111.11418). 
